@@ -1,0 +1,87 @@
+_metadata:
+  major_version: 1
+  minor_version: 1
+
+display_information:
+  name: Asset Count Bot
+  description: Warehouse asset counting, tracking, and reporting via Slack
+  background_color: "#1a2744"
+  long_description: >
+    Record physical asset counts, define derived figures via configurable formulas,
+    generate inventory reports, and output spreadsheet-ready columns — all from Slack.
+    Works in channels and DMs; optimised for mobile use on the warehouse floor.
+
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+
+  bot_user:
+    display_name: Asset Count Bot
+    always_online: true
+
+  slash_commands:
+    - command: /count
+      description: Record a count. No args opens a guided modal.
+      usage_hint: "<asset-name-or-id> <quantity> [unit]"
+      should_escape: false
+
+    - command: /count-session
+      description: Start or end a zone counting session
+      usage_hint: "start <zone> | end"
+      should_escape: false
+
+    - command: /inventory
+      description: Current stock level or derived value for an asset
+      usage_hint: "<asset-name-or-id>"
+      should_escape: false
+
+    - command: /inventory-report
+      description: Full inventory report as a Slack message and CSV
+      usage_hint: "[category]"
+      should_escape: false
+
+    - command: /formula
+      description: View or set the formula for a derived asset
+      usage_hint: "[set] <asset-name-or-id>"
+      should_escape: false
+
+    - command: /audit
+      description: Recent change history for an asset
+      usage_hint: "<asset-name-or-id>"
+      should_escape: false
+
+    - command: /sheet-output
+      description: Values in configured spreadsheet order — paste into a column
+      should_escape: false
+
+oauth_config:
+  scopes:
+    bot:
+      # Post messages and respond to commands
+      - chat:write
+      # Post to channels the bot hasn't been invited to (audit + daily summary channels)
+      - chat:write.public
+      # Upload CSV inventory reports
+      - files:write
+      # Required for slash commands
+      - commands
+
+settings:
+  # Socket Mode: no public URL required.
+  # Set socket_mode_enabled: false and add a Request URL to each slash command
+  # for production HTTP deployments.
+  socket_mode_enabled: true
+  token_rotation_enabled: false
+
+  interactivity:
+    is_enabled: true
+    # Request URL is only used when socket_mode_enabled: false.
+    # Replace with your public HTTPS URL + /slack/events path.
+    request_url: https://your-domain.example.com/slack/events
+
+  event_subscriptions:
+    bot_events: []
+    # No event subscriptions needed — the bot is command-driven only.
+    # Add app_mention here if you want to respond to @mentions in future.
