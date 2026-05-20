@@ -22,20 +22,6 @@ model Category {
   @@map("categories")
 }
 
-/// Zone / aisle / bin coordinates.
-/// aisle and bin are optional — a location can be as coarse as just a zone.
-/// NB: SQLite treats NULLs as distinct in UNIQUE indexes, so duplicate-location
-/// prevention is enforced in the application layer (LocationRepository).
-model Location {
-  id     String  @id @default(cuid())
-  zone   String
-  aisle  String?
-  bin    String?
-  assets Asset[]
-
-  @@map("locations")
-}
-
 // ── Core asset models ─────────────────────────────────────────────────────────
 
 model Asset {
@@ -47,10 +33,6 @@ model Asset {
   type       String
   categoryId String
   category    Category  @relation(fields: [categoryId], references: [id])
-
-  /// Required for COUNTABLE; null for DERIVED
-  locationId String?
-  location   Location? @relation(fields: [locationId], references: [id])
 
   /// How the asset is physically measured/counted (e.g. "each", "pallet", "kg")
   uom String

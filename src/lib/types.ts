@@ -46,13 +46,3 @@ export interface AssetInputDef {
   variableName: string;
   inputAssetId: string;
 }
-
-export interface LocationDef {
-  zone: string;
-  aisle?: string;
-  bin?: string;
-}
-
-export function formatLocation(loc: LocationDef): string {
-  return [loc.zone, loc.aisle, loc.bin].filter(Boolean).join('/');
-}
