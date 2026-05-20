@@ -5,6 +5,7 @@ import { registerInventoryCommand } from './commands/inventory';
 import { registerInventoryReportCommand } from './commands/inventoryReport';
 import { registerFormulaCommand } from './commands/formula';
 import { registerAuditCommand } from './commands/audit';
+import { registerSheetOutputCommand } from './commands/sheetOutput';
 
 export function registerHandlers(app: App): void {
   registerCountCommand(app);
@@ -13,4 +14,5 @@ export function registerHandlers(app: App): void {
   registerInventoryReportCommand(app);
   registerFormulaCommand(app);
   registerAuditCommand(app);
+  registerSheetOutputCommand(app);
 }

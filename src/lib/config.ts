@@ -21,6 +21,12 @@ const envSchema = z.object({
   DAILY_SUMMARY_CHANNEL: z.string().default('#warehouse-daily'),
   DAILY_SUMMARY_CRON: z.string().default('0 6 * * *'),
 
+  // Spreadsheet output order: comma-separated asset names or IDs.
+  // Empty string means the feature is unconfigured.
+  SPREADSHEET_OUTPUT_ORDER: z.string().default(''),
+  // Which unit to output: "uom" (as counted) or "uoo" (reported unit)
+  SPREADSHEET_OUTPUT_UNIT: z.enum(['uom', 'uoo']).default('uoo'),
+
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
     .default('info'),
