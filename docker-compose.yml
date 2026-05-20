@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  bot:
+    build:
+      context: .
+      target: production
+    env_file: .env
+    environment:
+      DATABASE_URL: file:/app/data/prod.db
+      NODE_ENV: production
+      SOCKET_MODE: 'true'
+    volumes:
+      - sqlite_data:/app/data
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+    healthcheck:
+      # In Socket Mode there is no HTTP endpoint; just check the process is alive
+      test: ['CMD', 'node', '-e', 'process.exit(0)']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Local dev override — mounts source for live reload via tsx
+  dev:
+    build:
+      context: .
+      target: build
+    env_file: .env
+    environment:
+      DATABASE_URL: file:/app/data/dev.db
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - sqlite_data:/app/data
+    command: npm run dev
+    profiles:
+      - dev
+
+volumes:
+  sqlite_data:

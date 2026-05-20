@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+*.db
+*.db-journal
+.git/
+.gitignore
+README.md
+docs/
+tests/
+*.test.ts
+vitest.config.ts
+.eslintrc.json
+.prettierrc
+tsconfig.json
