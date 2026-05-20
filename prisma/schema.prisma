@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// NOTE: SQLite does not support native enums in Prisma.
+// `type` and `action` fields are stored as String (TEXT).
+// Type safety is enforced in TypeScript via src/lib/types.ts.
+
+// ── Supporting models ─────────────────────────────────────────────────────────
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  assets    Asset[]
+  createdAt DateTime @default(now())
+
+  @@map("categories")
+}
+
+/// Zone / aisle / bin coordinates.
+/// aisle and bin are optional — a location can be as coarse as just a zone.
+/// NB: SQLite treats NULLs as distinct in UNIQUE indexes, so duplicate-location
+/// prevention is enforced in the application layer (LocationRepository).
+model Location {
+  id     String  @id @default(cuid())
+  zone   String
+  aisle  String?
+  bin    String?
+  assets Asset[]
+
+  @@map("locations")
+}
+
+// ── Core asset models ─────────────────────────────────────────────────────────
+
+model Asset {
+  id   String @id @default(cuid())
+  name String @unique
+
+  description String?
+  /// "COUNTABLE" | "DERIVED"  — see src/lib/types.ts
+  type       String
+  categoryId String
+  category    Category  @relation(fields: [categoryId], references: [id])
+
+  /// Required for COUNTABLE; null for DERIVED
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id])
+
+  /// How the asset is physically measured/counted (e.g. "each", "pallet", "kg")
+  uom String
+  /// How the asset is reported downstream (e.g. "tote").
+  /// May equal uom — conversion factor will be 1 in that case.
+  uoo String
+  /// uoo_value = uom_value × conversionFactor
+  conversionFactor Decimal @default(1)
+
+  /// Arithmetic expression string; only set for DERIVED assets.
+  /// Variables in the expression correspond to AssetInput.variableName values.
+  formula String?
+
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // For DERIVED assets: the inputs that feed this formula
+  inputs AssetInput[] @relation("DerivedAsset")
+  // Reverse: where this asset is used as an input in other derived assets
+  usedAsInput AssetInput[] @relation("InputAsset")
+
+  counts        Count[]
+  auditLogs     AuditLog[]
+  expectedValue ExpectedValue?
+
+  @@map("assets")
+}
+
+/// Maps a variable name used in a formula to the asset whose latest count value
+/// is substituted at evaluation time.
+model AssetInput {
+  id String @id @default(cuid())
+
+  /// The derived asset that owns this input
+  assetId String
+  asset   Asset  @relation("DerivedAsset", fields: [assetId], references: [id])
+
+  /// The variable name as it appears in the formula expression (e.g. "buffer")
+  variableName String
+
+  /// The countable (or derived) asset whose value is read
+  inputAssetId String
+  inputAsset   Asset  @relation("InputAsset", fields: [inputAssetId], references: [id])
+
+  @@unique([assetId, variableName])
+  @@unique([assetId, inputAssetId])
+  @@map("asset_inputs")
+}
+
+// ── Counting ──────────────────────────────────────────────────────────────────
+
+model Count {
+  id String @id @default(cuid())
+
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id])
+
+  /// null when counted outside a session (ad-hoc /count command)
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id])
+
+  /// Stored in UoM units; conversion to UoO happens at read time
+  quantity    Decimal
+  slackUserId String
+  note        String?
+  countedAt   DateTime @default(now())
+
+  @@map("counts")
+}
+
+/// A counting session locks a zone so concurrent counts are coordinated.
+model Session {
+  id String @id @default(cuid())
+
+  zone String
+  /// Slack user ID of whoever ran /count-session start
+  slackUserId String
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  counts Count[]
+
+  @@map("sessions")
+}
+
+// ── Thresholds ────────────────────────────────────────────────────────────────
+
+/// Optional expected quantity for discrepancy detection.
+/// For DERIVED assets this can hold an expected computed value.
+model ExpectedValue {
+  id String @id @default(cuid())
+
+  assetId     String   @unique
+  asset       Asset    @relation(fields: [assetId], references: [id])
+  quantity    Decimal
+  updatedAt   DateTime @updatedAt
+  updatedById String
+
+  @@map("expected_values")
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+/// Immutable append-only log of every significant action.
+/// `before` and `after` store JSON snapshots of the relevant entity fields.
+model AuditLog {
+  id String @id @default(cuid())
+
+  /// See AuditAction in src/lib/types.ts
+  action      String
+  slackUserId String
+
+  /// Asset this action relates to (null for session-only actions)
+  assetId String?
+  asset   Asset?  @relation(fields: [assetId], references: [id])
+
+  /// Session this action relates to (null for non-session actions)
+  sessionId String?
+
+  /// JSON-serialised snapshot of the state before the change
+  before String?
+  /// JSON-serialised snapshot of the state after the change
+  after String?
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([assetId, createdAt])
+  @@index([sessionId])
+  @@map("audit_logs")
+}
