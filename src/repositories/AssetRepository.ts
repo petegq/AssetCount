@@ -8,7 +8,7 @@ import { AssetType, AssetInputDef } from '../lib/types';
 
 const assetInclude = {
   category: true,
-  inputs: { include: { inputAsset: { select: { id: true, name: true, type: true } } } },
+  inputs: { include: { inputAsset: { select: { id: true, name: true, type: true, uom: true, uoo: true } } } },
   expectedValue: true,
 } satisfies Prisma.AssetInclude;
 
