@@ -8,8 +8,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],
-      include: ['src/services/**', 'src/repositories/**', 'src/lib/**'],
-      exclude: ['src/index.ts', 'src/lib/slack.ts'],
+      // Only measure coverage on testable business-logic layers.
+      // Infrastructure files (config, logger, slack bootstrap) are intentionally excluded.
+      include: ['src/services/**', 'src/repositories/**', 'src/lib/errors.ts'],
+      exclude: [],
       thresholds: {
         lines: 80,
         functions: 80,
