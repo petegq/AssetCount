@@ -118,6 +118,8 @@ npm install
 npm run dev
 ```
 
+> **How `.env` is loaded:** the `dev` and `start` scripts use Node.js 20's built-in `--env-file=.env` flag. No `dotenv` package is needed. If you run the compiled output directly with `node dist/index.js` (without the flag) the app will exit with a missing-variables error — always use `npm run start` or `npm run dev`.
+
 The bot connects to Slack via a persistent WebSocket. You should see:
 
 ```
