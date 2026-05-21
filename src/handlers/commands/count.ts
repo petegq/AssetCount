@@ -1,7 +1,7 @@
-import { App } from '@slack/bolt';
+import { App, BlockAction, ButtonAction } from '@slack/bolt';
 import Decimal from 'decimal.js';
 import { withErrorHandling, parseCountArgs } from '../middleware';
-import { section, fields, divider, textInput, numberInput } from '../blocks';
+import { section, fields, divider, numberInput, externalSelect, quickAddButtons } from '../blocks';
 import { assetRepository } from '../../repositories/AssetRepository';
 import { countRepository } from '../../repositories/CountRepository';
 import { sessionRepository } from '../../repositories/SessionRepository';
@@ -13,26 +13,75 @@ import { msg } from '../../messages';
 import { ValidationError } from '../../lib/errors';
 
 const COUNT_MODAL_CALLBACK = 'count_modal_submit';
+const QUICK_ADD_PREFIX = 'quick_add';
+const QUICK_ADD_INCREMENTS = [1, 10, 100];
+
 const BLOCK = {
   ASSET: 'asset_block',
   QUANTITY: 'quantity_block',
-  NOTE: 'note_block',
+  QUICK_ADD: 'quick_add_block',
 };
 const ACTION = {
   ASSET: 'asset_input',
   QUANTITY: 'quantity_input',
-  NOTE: 'note_input',
 };
 
+type InitialOption = { text: { type: 'plain_text'; text: string }; value: string };
+
 export function registerCountCommand(app: App): void {
-  // ── Quick command: /count <asset> <qty> [unit] ─────────────────────────────
+  // ── Asset search options for external_select ──────────────────────────────
+
+  app.options(ACTION.ASSET, async ({ options, ack }) => {
+    const query = (options as { value?: string }).value?.toLowerCase() ?? '';
+    const assets = await assetRepository.findMany({ includeArchived: false });
+    const countable = assets
+      .filter((a) => a.type === AssetType.COUNTABLE)
+      .filter((a) => !query || a.name.toLowerCase().includes(query))
+      .slice(0, 100);
+
+    await ack({
+      options: countable.map((a) => ({
+        text: { type: 'plain_text' as const, text: a.name },
+        value: a.id,
+      })),
+    });
+  });
+
+  // ── Quick-add button actions ──────────────────────────────────────────────
+
+  app.action(/^quick_add_\d+$/, async ({ ack, body, action, client }) => {
+    await ack();
+
+    const b = body as BlockAction;
+    if (!b.view) return;
+
+    const increment = Number((action as ButtonAction).value ?? '0');
+    const values = b.view.state.values;
+
+    const currentQtyStr = values[BLOCK.QUANTITY]?.[ACTION.QUANTITY]?.value ?? '0';
+    const currentQty = isNaN(Number(currentQtyStr)) ? new Decimal(0) : new Decimal(currentQtyStr);
+    const newQty = currentQty.plus(increment);
+
+    const selectedOption = values[BLOCK.ASSET]?.[ACTION.ASSET]?.selected_option as InitialOption | null;
+    const initialOption = selectedOption
+      ? { text: { type: 'plain_text' as const, text: selectedOption.text.text }, value: selectedOption.value }
+      : undefined;
+
+    const meta = JSON.parse(b.view.private_metadata || '{}') as { channelId?: string };
+
+    await client.views.update({
+      view_id: b.view.id,
+      view: buildCountModal(meta.channelId ?? b.user.id, newQty.toString(), initialOption),
+    });
+  });
+
+  // ── Quick command: /count <asset> <qty> [unit] ────────────────────────────
 
   app.command('/count', async ({ command, ack, respond, client }) => {
     await ack();
 
     const text = command.text.trim();
 
-    // No args — open the guided modal instead
     if (!text) {
       await client.views.open({
         trigger_id: command.trigger_id,
@@ -61,22 +110,25 @@ export function registerCountCommand(app: App): void {
     });
   });
 
-  // ── Modal submission ───────────────────────────────────────────────────────
+  // ── Modal submission ──────────────────────────────────────────────────────
 
   app.view(COUNT_MODAL_CALLBACK, async ({ ack, body, view, client }) => {
     const values = view.state.values;
-    const nameOrId = values[BLOCK.ASSET]?.[ACTION.ASSET]?.value ?? '';
+    const assetId = values[BLOCK.ASSET]?.[ACTION.ASSET]?.selected_option?.value ?? '';
     const quantityStr = values[BLOCK.QUANTITY]?.[ACTION.QUANTITY]?.value ?? '';
-    const note = values[BLOCK.NOTE]?.[ACTION.NOTE]?.value ?? undefined;
 
-    if (!nameOrId || !quantityStr) {
-      await ack({ response_action: 'errors', errors: { [BLOCK.ASSET]: 'Asset and quantity are required.' } });
+    if (!assetId) {
+      await ack({ response_action: 'errors', errors: { [BLOCK.ASSET]: 'Please select an asset.' } });
+      return;
+    }
+    if (!quantityStr || isNaN(Number(quantityStr)) || Number(quantityStr) < 0) {
+      await ack({ response_action: 'errors', errors: { [BLOCK.QUANTITY]: 'Enter a valid positive number.' } });
       return;
     }
 
-    const asset = await assetRepository.resolve(nameOrId);
+    const asset = await assetRepository.resolve(assetId);
     if (!asset) {
-      await ack({ response_action: 'errors', errors: { [BLOCK.ASSET]: `Asset not found: ${nameOrId}` } });
+      await ack({ response_action: 'errors', errors: { [BLOCK.ASSET]: 'Asset not found — please try again.' } });
       return;
     }
     if (asset.type === AssetType.DERIVED) {
@@ -84,20 +136,16 @@ export function registerCountCommand(app: App): void {
       await ack({ response_action: 'errors', errors: { [BLOCK.ASSET]: `${asset.name} is derived — count its inputs instead: ${inputNames.join(', ')}` } });
       return;
     }
-    if (!/^\d+\.?\d*$/.test(quantityStr)) {
-      await ack({ response_action: 'errors', errors: { [BLOCK.QUANTITY]: 'Enter a valid positive number.' } });
-      return;
-    }
 
     await ack();
 
     const meta = JSON.parse(view.private_metadata || '{}') as { channelId?: string };
-    const channelId = meta.channelId ?? body.user.id; // fallback to DM
+    const channelId = meta.channelId ?? body.user.id;
 
     try {
       const quantity = new Decimal(quantityStr);
       const session = await sessionRepository.findActiveByUser(body.user.id);
-      const count = await countRepository.create({ assetId: asset.id, quantity, slackUserId: body.user.id, sessionId: session?.id, note });
+      const count = await countRepository.create({ assetId: asset.id, quantity, slackUserId: body.user.id, sessionId: session?.id });
       await auditRepository.append({ action: AuditAction.COUNT, slackUserId: body.user.id, assetId: asset.id, after: { quantity: quantity.toString(), countId: count.id } });
       const factor = new Decimal(asset.conversionFactor.toString());
       await client.chat.postMessage({
@@ -114,22 +162,20 @@ export function registerCountCommand(app: App): void {
   });
 }
 
-// ── Shared count processor (used by quick command and modal) ──────────────────
+// ── Shared count processor ────────────────────────────────────────────────────
 
 async function processCount(opts: {
   nameOrId: string;
   quantityStr: string;
   slackUserId: string;
-  note?: string;
   respond: Parameters<typeof withErrorHandling>[0];
   client: App['client'];
 }) {
-  const { nameOrId, quantityStr, slackUserId, note, respond, client } = opts;
+  const { nameOrId, quantityStr, slackUserId, respond, client } = opts;
 
   const asset = await assetRepository.resolve(nameOrId);
 
   if (!asset) {
-    // Try partial name match to help the user
     const all = await assetRepository.findMany({ includeArchived: false });
     const matches = all
       .filter((a) => a.name.toLowerCase().includes(nameOrId.toLowerCase()))
@@ -161,7 +207,7 @@ async function processCount(opts: {
 
   const quantity = new Decimal(quantityStr);
   const session = await sessionRepository.findActiveByUser(slackUserId);
-  const count = await countRepository.create({ assetId: asset.id, quantity, slackUserId, sessionId: session?.id, note });
+  const count = await countRepository.create({ assetId: asset.id, quantity, slackUserId, sessionId: session?.id });
 
   await auditRepository.append({
     action: AuditAction.COUNT,
@@ -198,7 +244,11 @@ function buildCountSuccessBlocks(
   ];
 }
 
-function buildCountModal(channelId: string) {
+function buildCountModal(
+  channelId: string,
+  initialQuantity?: string,
+  initialOption?: InitialOption,
+) {
   return {
     type: 'modal' as const,
     callback_id: COUNT_MODAL_CALLBACK,
@@ -207,12 +257,13 @@ function buildCountModal(channelId: string) {
     submit: { type: 'plain_text' as const, text: 'Record' },
     close: { type: 'plain_text' as const, text: 'Cancel' },
     blocks: [
-      textInput({
+      externalSelect({
         blockId: BLOCK.ASSET,
         actionId: ACTION.ASSET,
-        label: 'Asset name or ID',
-        placeholder: 'e.g. DT Emergency Buffer',
-        hint: 'Type the asset name or paste its ID. Derived assets cannot be counted directly.',
+        label: 'Asset',
+        placeholder: 'Search for an asset…',
+        minQueryLength: 0,
+        initialOption,
       }),
       numberInput({
         blockId: BLOCK.QUANTITY,
@@ -220,14 +271,9 @@ function buildCountModal(channelId: string) {
         label: 'Quantity (in UoM)',
         placeholder: 'e.g. 42',
         isDecimalAllowed: true,
+        initialValue: initialQuantity,
       }),
-      textInput({
-        blockId: BLOCK.NOTE,
-        actionId: ACTION.NOTE,
-        label: 'Note (optional)',
-        placeholder: 'Any remarks about this count',
-        optional: true,
-      }),
+      quickAddButtons(BLOCK.QUICK_ADD, QUICK_ADD_INCREMENTS, QUICK_ADD_PREFIX),
     ],
   };
 }

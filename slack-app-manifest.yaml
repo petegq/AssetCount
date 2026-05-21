@@ -22,6 +22,11 @@ features:
     always_online: true
 
   slash_commands:
+    - command: /asset
+      description: Register, list, or archive assets
+      usage_hint: "[register | list [category] | archive <name>]"
+      should_escape: false
+
     - command: /count
       description: Record a count. No args opens a guided modal.
       usage_hint: "<asset-name-or-id> <quantity> [unit]"
